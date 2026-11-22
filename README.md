@@ -64,7 +64,7 @@ The workflow uses the Thünen Institute's **Bestockte Holzbodenkarte 2018** (Sto
 For each forest pixel, a harmonic regression is fitted to valid 2018 observations:
 
 \[
-NDVI(t)=a+c_1\sin\left(\frac{2\pi t}{365}\right)+d_1\cos\left(\frac{2\pi t}{365}\right)+c_2\sin\left(\frac{4\pi t}{365}\right)+d_2\cos\left(\frac{4\pi t}{365}\right)
+NDVI(t) = a + c1*sin(2*pi*t/365) + d1*cos(2*pi*t/365) + c2*sin(4*pi*t/365) + d2*cos(4*pi*t/365)
 \]
 
 *A linear trend term is deliberately excluded.* During early iterations, including a trend term led to unrealistic extrapolated NDVI values. The parameters are estimated with bounded `scipy.optimize.least_squares` (Intercept bounds: `[0, 1]`, Harmonic bounds: `[-2, 2]`).
