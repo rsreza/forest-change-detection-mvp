@@ -1,0 +1,198 @@
+## Revised Proposal: Seasonal-Aware Forest Disturbance Monitor with Explicit Uncertainty Flagging
+
+**Ranking: #1 (Easiest to Apply | Highest Immediate Relevance | Methodological Novelty)**
+
+### Summary
+
+An automated pipeline that processes Sentinel-2 time series to detect forest disturbances in German forest areas, producing change alerts with **per-polygon confidence flags**. Unlike existing operational services (FNEWs, ForestPulse) that focus on annual retrospective mapping or consistent thematic layer generation, this MVP introduces a **seasonal-decomposition anomaly detector** that separates phenological variation from structural disturbance signals, and explicitly quantifies detection uncertainty based on observation density and temporal gaps. This directly addresses the false-positive problem documented in near-real-time bark beetle detection literature for German forests.
+
+### Objectives
+
+Build a reproducible, containerized pipeline that ingests Sentinel-2 L2A data for a defined Area of Interest (AOI) in Germany.
+
+Implement a **harmonic regression baseline** with residual scoring and persistence rules, rather than simple NDVI thresholding.
+
+Attach **confidence attributes** (high / low / sparse) to every detected disturbance polygon based on valid observation counts and temporal coverage.
+
+Store results in PostGIS and visualize them via a lightweight Streamlit/Leaflet interface with confidence-filtering controls.
+
+Demonstrate end-to-end MLOps capability (Docker, CI/CD, data versioning) using open-source tools.
+
+### Probable Users
+
+State Forest Agencies (Landesforstverwaltungen): For early warning with explicit uncertainty communication.
+
+Environmental NGOs and Conservation Groups: For independent forest health reporting with transparent confidence levels.
+
+Climate Consultancies and Carbon Accounting Firms: As a baseline service with documented limitations.
+
+### Introduction (Literature Review and Context)
+
+Germany's forests have experienced unprecedented stress in recent years. The drought years of 2018–2020, followed by bark beetle outbreaks, resulted in the loss of approximately 150,000 hectares of forest annually, with the Harz region suffering particularly extensive damage. The German government has responded through multiple coordinated initiatives. The Copernicus Netzwerkbüro Wald serves as the central coordination hub for remote sensing applications in forests. Two operational services are directly relevant as reference models: **FNEWs** (2018–2025) produces nationwide annual forest disturbance maps for all of Germany , while **ForestPulse** (2025–2027) develops consistent, regionalizable tree species, vitality, and structure information layers using Sentinel-2 archives and airborne laser scanning data, with a FORCE-based data cube maintained at the University of Trier .
+
+However, both services have methodological characteristics that create space for complementary prototypes. FNEWs is **annual and retrospective**—it maps disturbances after the fact, not in near-real-time . ForestPulse emphasizes **consistency and user-driven customization**, but its outputs are thematic layers updated annually to monthly, not per-acquisition alerts . Neither service exposes **per-polygon uncertainty** as a first-class product attribute.
+
+The scientific literature identifies a critical gap. A recent IEEE study on early bark beetle detection in spruce stands notes that existing methods suffer from false positives, particularly in spring due to phenological variation, and that the physiological spectral response is delayed by at least 10 weeks . This means detection speed is limited by tree physiology, not sensor revisit frequency. Simple NDVI thresholds will either miss early stress or produce false alarms during green-up. **Your MVP's novelty is a seasonal-decomposition detector that explicitly models phenology and quantifies its own uncertainty.**
+
+### Advantages of This MVP
+
+**Methodological novelty:** Harmonic residual detection with persistence rules, not a reimplementation of existing operational logic.
+
+**Uncertainty as a product:** Confidence flags per polygon, directly addressing the false-positive problem identified in literature.
+
+**Direct Skill Match:** Uses Sentinel-2, xarray, and Rasterio expertise in a pipeline architecture that demonstrates operational thinking.
+
+**Data Availability:** Sentinel-2 data is free via Copernicus Data Space Ecosystem; German administrative boundaries (VG2500) are available from BKG.
+
+**Alignment with Active German Projects:** FNEWs and ForestPulse provide documented architectures and validation approaches you can reference and learn from .
+
+### Methodology
+
+The pipeline follows a five-stage architecture, with **Stage 3 as the novel contribution**:
+
+**Stage 1: Data Cube Construction.** Query the Copernicus Data Space Ecosystem STAC API for Sentinel-2 L2A scenes over a fixed AOI (e.g., Harz bark beetle hotspot). Build a local analysis-ready data cube using xarray and rioxarray, applying cloud masking via the Scene Classification Layer (SCL) band.
+
+**Stage 2: Vegetation Index Computation.** Calculate NDVI for each cloud-free observation. Harmonize Sentinel-2A and 2B data for radiometric consistency.
+
+**Stage 3 (Novel): Seasonal-Trend Decomposition + Anomaly Scoring.** Instead of comparing current NDVI to a multi-year median, fit a **harmonic regression** to the historical baseline per pixel:
+
+```
+NDVI(t) = a + b·t + Σ[c_k·sin(2πkt/365) + d_k·cos(2πkt/365)]
+```
+
+where k=1,2 captures annual and semi-annual phenology. The residual for a new observation is `r(t) = observed_NDVI - predicted_NDVI`. Flag a disturbance candidate when `r(t) < -threshold` AND the residual persists for **two consecutive valid observations**. This separates phenological variation (which produces positive residuals during late green-up) from structural disturbance (which produces persistent negative residuals).
+
+**Stage 4 (Novel): Uncertainty-Aware Vectorization.** Convert raster disturbance masks to polygons using rasterio.features.shapes, filter small polygons (< 0.5 ha). Before writing to PostGIS, compute per-polygon quality metrics:
+
+1. **Observation density:** number of valid (non-cloud) observations in the 60 days preceding detection. If < 3, mark as `low_confidence`.
+2. **Temporal gap:** maximum days between consecutive valid observations in the monitoring window. If > 45 days, mark as `sparse_coverage`.
+
+Store these as attributes: `confidence` (high/low/sparse), `obs_density_60d`, `max_gap_days`.
+
+**Stage 5: API and Visualization.** FastAPI endpoint returning GeoJSON with confidence attributes. Streamlit dashboard with Leaflet map, time slider, and **confidence-filtering toggles** ("Show only high-confidence detections").
+
+### Data Method
+
+**Primary Data:** Sentinel-2 L2A via Copernicus Data Space Ecosystem STAC API. Access via S3 endpoint for windowed AOI reads (not full product downloads) .
+
+**Auxiliary Data:** German administrative boundaries (VG2500) from BKG.
+
+**Validation Data:** FNEWs disturbance maps (2018–2025) for qualitative comparison where available .
+
+**Storage:** PostGIS for vectorized results; local GeoTIFF cache for raster intermediates.
+
+### Implementation Steps (12 Weeks)
+
+| Week | Task |
+|------|------|
+| 1–2 | Set up repository, Docker environment, STAC retrieval module. Test pystac-client with S3 credentials. |
+| 3–4 | Implement SCL cloud masking, NDVI computation, data cube assembly. |
+| 5–6 | Implement harmonic baseline fitting and residual detection; test on Harz 2019–2020 bark beetle event. |
+| 7–8 | Vectorize with confidence metrics, integrate PostGIS. |
+| 9–10 | Build FastAPI endpoints and Streamlit dashboard with confidence filtering. |
+| 11 | Write tests (pytest), CI/CD pipeline (GitHub Actions), documentation. |
+| 12 | Finalize README with architecture diagram, Harz result screenshots, limitations section. |
+
+### Project Structure
+
+```
+forestpulse-mvp/
+├── .github/workflows/ci.yml
+├── docker-compose.yml
+├── src/
+│   ├── ingest/stac_fetch.py
+│   ├── preprocess/cloud_mask.py, ndvi.py
+│   ├── detect/harmonic_anomaly.py
+│   ├── store/postgis_writer.py
+│   ├── api/main.py
+│   └── dashboard/app.py
+├── tests/
+├── data/
+└── README.md
+```
+
+### Expected Outcome
+
+A public GitHub repository with a fully reproducible pipeline (`docker-compose up` launches PostGIS, API, and dashboard).
+
+A README containing: problem statement, literature context (FNEWs, ForestPulse, false-positive gap), harmonic detection methodology, sample Harz output with confidence attributes, and limitations.
+
+**Resume bullet:** "Built an uncertainty-aware Sentinel-2 forest disturbance prototype using harmonic residual decomposition to separate phenological variation from structural change, with explicit confidence flagging for sparse observation regimes—addressing false-positive limitations documented in German bark beetle NRT literature."
+
+---
+
+## Data Requirements & Analysis Location: Answering Your Practical Questions
+
+### How Much Data Do We Need?
+
+**For a meaningful MVP: very little.** You do not need the full Sentinel-2 archive.
+
+The key insight: you should **not download full scenes**. A single Sentinel-2 L2A tile is approximately 900 MB to 1 GB . If you downloaded 50 scenes for a one-year baseline plus monitoring period, that would be 45–50 GB—unnecessary and slow.
+
+**Recommended scope for MVP:**
+
+- **AOI size:** One Sentinel-2 tile subset, roughly 20 km × 20 km over a known disturbance area (e.g., Harz National Park region, where the 2019–2020 bark beetle outbreak is well documented).
+- **Time period:** One baseline year (e.g., 2018, before major disturbance) + one monitoring year (e.g., 2019 or 2020, during outbreak). This gives you enough data to fit the harmonic baseline and detect the anomaly.
+- **Number of scenes:** With ~5-day revisit and ~50% cloud cover filtering, expect roughly **15–25 usable scenes per year** for a German AOI. For two years: **30–50 scenes**.
+
+**Actual download volume with S3 windowed reads:**
+
+Using the S3 endpoint and `rasterio` with window parameters, you fetch only the pixels intersecting your AOI for the bands you need (B04, B08, SCL) . For a 20×20 km AOI:
+
+- Three bands × ~400 MB per band per scene (full tile) × (20/100)² AOI fraction ≈ **~50 MB per scene** (rough estimate; actual size depends on compression and AOI shape).
+- 50 scenes × ~50 MB ≈ **2.5 GB total download**.
+
+This is comfortably within any free quota. The Copernicus Data Space Ecosystem free tier provides 12 TB per month via OData —far more than you need.
+
+**Bottom line for MVP:** **~2–5 GB of downloaded data** is sufficient. You do not need to store the full archive.
+
+### Where Should We Analyze the Data?
+
+**Analysis should happen on your local machine (Windows + PyCharm), not in the cloud.**
+
+Rationale:
+
+1. **MVP scope is small:** A 20×20 km AOI over two years is a few gigabytes of raster data. Modern laptops handle this easily with xarray and rasterio.
+2. **Simplicity:** You avoid setting up cloud compute infrastructure (CREODIAS, CODE-DE, or similar). Your proposal's Docker-based architecture runs PostGIS, FastAPI, and Streamlit locally—matching the "reproducible on a laptop" goal.
+3. **Learning value:** Building the pipeline locally teaches you the data flow, masking logic, and anomaly detection without cloud-specific abstractions obscuring the mechanics.
+
+**What you should do:**
+
+- Use **S3 windowed reads** to stream only the AOI subset into memory or a local cache. Do not download full `.SAFE` products.
+- Cache the extracted NDVI arrays locally as small GeoTIFFs or NetCDF files for fast re-processing during development.
+- Run the harmonic fitting and anomaly detection locally with `numpy`/`scipy`/`xarray`.
+- Run PostGIS in Docker locally for vector storage.
+
+**What you should NOT do for this MVP:**
+
+- Do not attempt cloud processing on CODE-DE or CREODIAS. That adds weeks of setup overhead for no MVP benefit.
+- Do not download full Sentinel-2 tiles unless absolutely necessary for debugging.
+
+### Should We Download the Data?
+
+**Yes, but only windowed subsets via S3, not full products.**
+
+The Copernicus Data Space Ecosystem STAC catalog provides asset links via both HTTPS and S3 . The HTTPS endpoint does **not** support spatial subsetting—it serves complete files only. The S3 endpoint supports byte-range requests and works with `rasterio`/GDAL to read only the AOI window .
+
+**Your `stac_fetch.py` workflow:**
+
+1. Search STAC for items matching your AOI, date range, and cloud cover threshold.
+2. Extract the S3 asset URLs for `B04_10m`, `B08_10m`, and `SCL_20m`.
+3. Open each asset with `rasterio` using `fsspec` S3 filesystem and window parameters for your AOI bounds.
+4. Write the extracted arrays to a local cache directory (e.g., `data/cache/`).
+
+This gives you **local copies of only the pixels you need**, enabling fast iteration without repeated network calls.
+
+### Summary Table
+
+| Question | Answer |
+|----------|--------|
+| **Data volume for MVP** | ~2–5 GB (30–50 scenes, windowed AOI subsets) |
+| **Where to analyze** | Local Windows machine (PyCharm + Docker for PostGIS) |
+| **Download full products?** | No. Use S3 windowed reads only. |
+| **Cloud processing needed?** | No. Local pipeline is sufficient for MVP scope. |
+| **Free quota concerns?** | None. CDSE free tier provides 12 TB/month . |
+
+---
+
+Shall I now write the `stac_fetch.py` with the exact S3 windowed-read configuration for CDSE, or the `harmonic_anomaly.py` with the full detection logic?

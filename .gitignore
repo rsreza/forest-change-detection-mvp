@@ -1,0 +1,17 @@
+﻿.venv/
+__pycache__/
+*.pyc
+.env
+data/cache/*
+!data/cache/.gitkeep
+data/*.tif
+data/*.nc
+.pytest_cache/
+.streamlit/secrets.toml
+.DS_Store
+.env
+S3 Credentials.txt
+data/cache/
+data/*.nc
+data/*.tif
+data/*.png
