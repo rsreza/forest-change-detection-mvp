@@ -262,7 +262,7 @@ Open `http://localhost:8501` to view the Folium map, apply confidence filters, a
 If you use this implementation or build on the workflow, please cite the repository:
 
 ```text
-ForestPulse MVP (2026).
+forest-change-detection-mvp (2026).
 Seasonal-aware forest disturbance monitoring with uncertainty flagging.
 GitHub repository: https://github.com/rsreza/forest-change-detection-mvp
 ```
